@@ -61,33 +61,133 @@ func GetHerramientas(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(herramientas)
 }
 
+// UpdateHerramienta maneja la actualización de una herramienta
 func UpdateHerramienta(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	id, err := primitive.ObjectIDFromHex(params["id"])
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		sendErrorResponse(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	var herramienta models.Herramienta
 	if err := json.NewDecoder(r.Body).Decode(&herramienta); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		sendErrorResponse(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	collection := database.GetClient().Database("herramientas").Collection("herramientas")
-	_, err = collection.UpdateOne(
-		context.TODO(),
-		bson.M{"_id": id},
-		bson.M{"$set": herramienta},
-	)
-
+	// Obtener la herramienta actual
+	currentHerramienta, err := getCurrentHerramienta(id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Procesar el historial si es necesario
+	if herramienta.Status == "assigned" {
+		herramienta = processAssignmentHistory(currentHerramienta, herramienta)
+	}
+
+	// Procesar historial de mantenimientos si es necesario
+	if herramienta.Status == "maintenance" {
+		herramienta = processMaintenanceHistory(currentHerramienta, herramienta)
+	}
+
+	// Actualizar en la base de datos
+	if err := updateHerramientaInDB(id, herramienta); err != nil {
+		sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	json.NewEncoder(w).Encode(herramienta)
+}
+
+// getCurrentHerramienta obtiene la herramienta actual desde la base de datos
+func getCurrentHerramienta(id primitive.ObjectID) (models.Herramienta, error) {
+	collection := database.GetClient().Database("herramientas").Collection("herramientas")
+	var herramienta models.Herramienta
+	err := collection.FindOne(context.TODO(), bson.M{"_id": id}).Decode(&herramienta)
+	return herramienta, err
+}
+
+// processAssignmentHistory procesa el historial de asignaciones
+func processAssignmentHistory(current, newHerramienta models.Herramienta) models.Herramienta {
+	newHistory := models.AssignmentHistory{
+		Responsible:    newHerramienta.Responsible,
+		AssignmentDate: newHerramienta.AssignmentDate,
+	}
+
+	// Verificar si hay que agregar el nuevo historial
+	if shouldAddNewHistory(current.AssignmentHistory, newHistory) {
+		newHerramienta.AssignmentHistory = append(current.AssignmentHistory, newHistory)
+
+		// Limitar el historial a los últimos 10 registros
+		if len(newHerramienta.AssignmentHistory) > 10 {
+			newHerramienta.AssignmentHistory = newHerramienta.AssignmentHistory[len(newHerramienta.AssignmentHistory)-10:]
+		}
+	} else {
+		newHerramienta.AssignmentHistory = current.AssignmentHistory
+	}
+
+	return newHerramienta
+}
+
+// shouldAddNewHistory determina si se debe agregar un nuevo registro al historial
+func shouldAddNewHistory(history []models.AssignmentHistory, newHistory models.AssignmentHistory) bool {
+	// Si no hay historial, agregar el primer registro
+	if len(history) == 0 {
+		return true
+	}
+
+	lastHistory := history[len(history)-1]
+	// Solo agregar si es diferente al último registro
+	return !(lastHistory.Responsible == newHistory.Responsible &&
+		lastHistory.AssignmentDate == newHistory.AssignmentDate)
+}
+
+// Nuevo método para procesar historial de mantenimientos
+func processMaintenanceHistory(current, newHerramienta models.Herramienta) models.Herramienta {
+	newMaintenanceRecord := models.MaintenanceHistory{
+		DateMaintenance: newHerramienta.DateMaintenance,
+		NextMaintenance: newHerramienta.NextMaintenance,
+	}
+	if shouldAddNewMaintenanceRecord(current.MaintenanceRecord, newMaintenanceRecord) {
+		newHerramienta.MaintenanceRecord = append(current.MaintenanceRecord, newMaintenanceRecord)
+
+		// Limitar a los últimos 10 registros
+		if len(newHerramienta.MaintenanceRecord) > 10 {
+			newHerramienta.MaintenanceRecord = newHerramienta.MaintenanceRecord[len(newHerramienta.MaintenanceRecord)-10:]
+		}
+	} else {
+		newHerramienta.MaintenanceRecord = current.MaintenanceRecord
+	}
+	return newHerramienta
+}
+
+// Determina si se debe añadir nuevo registro de mantenimiento
+func shouldAddNewMaintenanceRecord(records []models.MaintenanceHistory, newRecord models.MaintenanceHistory) bool {
+	if len(records) == 0 {
+		return true
+	}
+	lastRecord := records[len(records)-1]
+	return !(lastRecord.DateMaintenance == newRecord.DateMaintenance &&
+		lastRecord.NextMaintenance == newRecord.NextMaintenance)
+}
+
+// updateHerramientaInDB actualiza la herramienta en la base de datos
+func updateHerramientaInDB(id primitive.ObjectID, herramienta models.Herramienta) error {
+	collection := database.GetClient().Database("herramientas").Collection("herramientas")
+	_, err := collection.UpdateOne(
+		context.TODO(),
+		bson.M{"_id": id},
+		bson.M{"$set": herramienta},
+	)
+	return err
+}
+
+// sendErrorResponse envía una respuesta de error
+func sendErrorResponse(w http.ResponseWriter, message string, statusCode int) {
+	http.Error(w, message, statusCode)
 }
 
 func DeleteHerramienta(w http.ResponseWriter, r *http.Request) {
