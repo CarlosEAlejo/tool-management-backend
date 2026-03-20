@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"net/url"
 	"tool_management_backend/internal/database"
 	"tool_management_backend/internal/models"
 
@@ -32,33 +33,96 @@ func CreateHerramienta(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(herramienta)
 }
 
+// func GetHerramientas(w http.ResponseWriter, r *http.Request) {
+// 	query := bson.M{}
+
+// 	// Add filters from query parameters
+// 	if status := r.URL.Query().Get("status"); status != "" {
+// 		query["status"] = status
+// 	}
+
+// 	if responsible := r.URL.Query().Get("responsible"); responsible != "" {
+// 		query["responsible"] = bson.M{"$regex": primitive.Regex{Pattern: responsible, Options: "i"}}
+// 	}
+
+// 	collection := database.GetClient().Database("herramientas").Collection("herramientas")
+// 	cursor, err := collection.Find(context.TODO(), query)
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+// 	defer cursor.Close(context.TODO()) // Asegúrate de cerrar el cursor
+
+// 	var herramientas []models.Herramienta
+// 	if err = cursor.All(context.TODO(), &herramientas); err != nil {
+// 		http.Error(w, err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	json.NewEncoder(w).Encode(herramientas)
+// }
+
 func GetHerramientas(w http.ResponseWriter, r *http.Request) {
-	query := bson.M{}
-
-	// Add filters from query parameters
-	if status := r.URL.Query().Get("status"); status != "" {
-		query["status"] = status
-	}
-
-	if responsible := r.URL.Query().Get("responsible"); responsible != "" {
-		query["responsible"] = bson.M{"$regex": primitive.Regex{Pattern: responsible, Options: "i"}}
-	}
+	// Construimos el filtro basado en los query params
+	filter := buildHerramientaFilter(r.URL.Query())
 
 	collection := database.GetClient().Database("herramientas").Collection("herramientas")
-	cursor, err := collection.Find(context.TODO(), query)
+	cursor, err := collection.Find(context.TODO(), filter)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		sendErrorResponse(w, "Error al buscar herramientas: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer cursor.Close(context.TODO()) // Asegúrate de cerrar el cursor
+	defer cursor.Close(context.TODO())
 
 	var herramientas []models.Herramienta
-	if err = cursor.All(context.TODO(), &herramientas); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := cursor.All(context.TODO(), &herramientas); err != nil {
+		sendErrorResponse(w, "Error al decodificar resultados: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	// Si no hay resultados, devolver array vacío en lugar de null
+	if herramientas == nil {
+		herramientas = []models.Herramienta{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(herramientas)
+}
+
+// buildHerramientaFilter construye el filtro de MongoDB basado en los parámetros
+func buildHerramientaFilter(queryParams url.Values) bson.M {
+	filter := bson.M{}
+
+	// Filtros exactos
+	exactFilters := []string{"code", "name", "type", "status", "responsible", "location"}
+	for _, field := range exactFilters {
+		if value := queryParams.Get(field); value != "" {
+			filter[field] = value
+		}
+	}
+
+	// Búsqueda por coincidencia parcial en campos de texto
+	if search := queryParams.Get("search"); search != "" {
+		orFilters := []bson.M{
+			{"name": bson.M{"$regex": search, "$options": "i"}},
+			{"code": bson.M{"$regex": search, "$options": "i"}},
+			{"responsible": bson.M{"$regex": search, "$options": "i"}},
+		}
+
+		// Si ya tenemos otros filtros exactos, combinarlos con $and
+		if len(filter) > 0 {
+			filter = bson.M{
+				"$and": []bson.M{
+					filter,
+					{"$or": orFilters},
+				},
+			}
+		} else {
+			filter["$or"] = orFilters
+		}
+	}
+
+	return filter
 }
 
 // UpdateHerramienta maneja la actualización de una herramienta
