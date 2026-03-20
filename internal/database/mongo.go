@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"strings"
 
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -27,6 +28,9 @@ func ConnectDB() {
 }
 
 func DisconnectDB() {
+	if client == nil {
+		return
+	}
 	if err := client.Disconnect(context.TODO()); err != nil {
 		log.Fatal(err)
 	}
@@ -34,4 +38,16 @@ func DisconnectDB() {
 
 func GetClient() *mongo.Client {
 	return client
+}
+
+func GetDatabaseName() string {
+	name := strings.TrimSpace(os.Getenv("MONGODB_DATABASE"))
+	if name == "" {
+		return "herramientas"
+	}
+	return name
+}
+
+func GetDatabase() *mongo.Database {
+	return client.Database(GetDatabaseName())
 }

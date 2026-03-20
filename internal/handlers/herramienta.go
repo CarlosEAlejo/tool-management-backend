@@ -23,7 +23,7 @@ func CreateHerramienta(w http.ResponseWriter, r *http.Request) {
 	}
 	herramienta.ID = primitive.NewObjectID()
 
-	collection := database.GetClient().Database("herramientas").Collection("herramientas")
+	collection := database.GetDatabase().Collection("herramientas")
 	_, err := collection.InsertOne(context.TODO(), herramienta)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -45,7 +45,7 @@ func CreateHerramienta(w http.ResponseWriter, r *http.Request) {
 // 		query["responsible"] = bson.M{"$regex": primitive.Regex{Pattern: responsible, Options: "i"}}
 // 	}
 
-// 	collection := database.GetClient().Database("herramientas").Collection("herramientas")
+// 	collection := database.GetDatabase().Collection("herramientas")
 // 	cursor, err := collection.Find(context.TODO(), query)
 // 	if err != nil {
 // 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -66,7 +66,7 @@ func GetHerramientas(w http.ResponseWriter, r *http.Request) {
 	// Construimos el filtro basado en los query params
 	filter := buildHerramientaFilter(r.URL.Query())
 
-	collection := database.GetClient().Database("herramientas").Collection("herramientas")
+	collection := database.GetDatabase().Collection("herramientas")
 	cursor, err := collection.Find(context.TODO(), filter)
 	if err != nil {
 		sendErrorResponse(w, "Error al buscar herramientas: "+err.Error(), http.StatusInternalServerError)
@@ -168,7 +168,7 @@ func UpdateHerramienta(w http.ResponseWriter, r *http.Request) {
 
 // getCurrentHerramienta obtiene la herramienta actual desde la base de datos
 func getCurrentHerramienta(id primitive.ObjectID) (models.Herramienta, error) {
-	collection := database.GetClient().Database("herramientas").Collection("herramientas")
+	collection := database.GetDatabase().Collection("herramientas")
 	var herramienta models.Herramienta
 	err := collection.FindOne(context.TODO(), bson.M{"_id": id}).Decode(&herramienta)
 	return herramienta, err
@@ -240,7 +240,7 @@ func shouldAddNewMaintenanceRecord(records []models.MaintenanceHistory, newRecor
 
 // updateHerramientaInDB actualiza la herramienta en la base de datos
 func updateHerramientaInDB(id primitive.ObjectID, herramienta models.Herramienta) error {
-	collection := database.GetClient().Database("herramientas").Collection("herramientas")
+	collection := database.GetDatabase().Collection("herramientas")
 	_, err := collection.UpdateOne(
 		context.TODO(),
 		bson.M{"_id": id},
@@ -262,7 +262,7 @@ func DeleteHerramienta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	collection := database.GetClient().Database("herramientas").Collection("herramientas")
+	collection := database.GetDatabase().Collection("herramientas")
 	result, err := collection.DeleteOne(context.TODO(), bson.M{"_id": id})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -285,7 +285,7 @@ func GetHerramientaByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	collection := database.GetClient().Database("herramientas").Collection("herramientas")
+	collection := database.GetDatabase().Collection("herramientas")
 	var herramienta models.Herramienta
 	err = collection.FindOne(context.TODO(), bson.M{"_id": id}).Decode(&herramienta)
 	if err != nil {
