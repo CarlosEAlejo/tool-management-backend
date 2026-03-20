@@ -1,38 +1,56 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
+	"time"
 
-	"tool_management_backend/internal/database"
-	"tool_management_backend/internal/routes"
+	"tool_management_backend/internal/http/handlers"
+	"tool_management_backend/internal/http/router"
+	"tool_management_backend/internal/platform/config"
+	"tool_management_backend/internal/platform/database"
+	mongorepo "tool_management_backend/internal/repository/mongo"
+	toolservice "tool_management_backend/internal/service/tool"
 
 	"github.com/joho/godotenv"
 	"github.com/rs/cors"
 )
 
 func main() {
-	err := godotenv.Load()
+	_ = godotenv.Load()
+
+	cfg := config.Load()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	db, err := database.Connect(ctx, cfg.MongoURI)
 	if err != nil {
-		log.Fatal("Error loading .env file")
+		log.Fatal(err)
 	}
+	defer func() {
+		disconnectCtx, disconnectCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer disconnectCancel()
+		if err := db.Disconnect(disconnectCtx); err != nil {
+			log.Printf("mongo disconnect error: %v", err)
+		}
+	}()
 
-	database.ConnectDB()
-	defer database.DisconnectDB()
+	collection := db.Client().Database(cfg.DatabaseName).Collection(cfg.CollectionName)
+	repository := mongorepo.NewToolRepository(collection)
+	service := toolservice.New(repository)
+	toolHandler := handlers.NewToolHandler(service)
+	r := router.New(toolHandler)
 
-	r := routes.SetupRouter()
-
-	// Configura CORS
 	c := cors.New(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:3000"}, // Cambia esto según sea necesario
+		AllowedOrigins:   cfg.FrontendOrigins,
 		AllowCredentials: true,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Content-Type", "Authorization"},
 	})
 
-	// Envuelve el enrutador con el middleware CORS
 	handler := c.Handler(r)
 
-	log.Println("Servidor iniciado en el puerto 8000")
-	log.Fatal(http.ListenAndServe(":8000", handler))
+	log.Printf("Servidor iniciado en el puerto %s", cfg.Port)
+	log.Fatal(http.ListenAndServe(":"+cfg.Port, handler))
 }
