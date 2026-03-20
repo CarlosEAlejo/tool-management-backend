@@ -114,6 +114,14 @@ func (h *ToolHandler) writeError(w http.ResponseWriter, err error) {
 		return
 	}
 
+	if errors.Is(err, repository.ErrInvalidID) {
+		response.Error(w, http.StatusBadRequest, response.APIError{
+			Message: "El id de la herramienta no es valido",
+			Code:    "invalid_id",
+		})
+		return
+	}
+
 	if errors.Is(err, repository.ErrNotFound) {
 		response.Error(w, http.StatusNotFound, response.APIError{
 			Message: "Herramienta no encontrada",

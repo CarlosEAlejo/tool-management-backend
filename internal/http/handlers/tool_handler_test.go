@@ -113,6 +113,28 @@ func TestGetByIDReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestGetByIDReturnsInvalidID(t *testing.T) {
+	handler := handlers.NewToolHandler(mockService{
+		createFn: defaultCreate,
+		listFn:   defaultList,
+		getFn: func(ctx context.Context, id string) (domain.Tool, error) {
+			return domain.Tool{}, repository.ErrInvalidID
+		},
+		updateFn: defaultUpdate,
+		deleteFn: defaultDelete,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/herramientas/bad-id", nil)
+	req = mux.SetURLVars(req, map[string]string{"id": "bad-id"})
+	rec := httptest.NewRecorder()
+
+	handler.GetByID(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
 func TestDeletePropagatesInternalError(t *testing.T) {
 	handler := handlers.NewToolHandler(mockService{
 		createFn: defaultCreate,
@@ -132,6 +154,28 @@ func TestDeletePropagatesInternalError(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", rec.Code)
+	}
+}
+
+func TestDeleteReturnsInvalidID(t *testing.T) {
+	handler := handlers.NewToolHandler(mockService{
+		createFn: defaultCreate,
+		listFn:   defaultList,
+		getFn:    defaultGet,
+		updateFn: defaultUpdate,
+		deleteFn: func(ctx context.Context, id string) error {
+			return repository.ErrInvalidID
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodDelete, "/herramientas/bad-id", nil)
+	req = mux.SetURLVars(req, map[string]string{"id": "bad-id"})
+	rec := httptest.NewRecorder()
+
+	handler.Delete(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
 	}
 }
 

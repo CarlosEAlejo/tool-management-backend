@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"net"
 	"net/http"
 	"time"
 
@@ -50,7 +51,11 @@ func main() {
 	})
 
 	handler := c.Handler(r)
+	listener, err := net.Listen("tcp", ":"+cfg.Port)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	log.Printf("Servidor iniciado en el puerto %s", cfg.Port)
-	log.Fatal(http.ListenAndServe(":"+cfg.Port, handler))
+	log.Printf("Servidor listo en el puerto %s", cfg.Port)
+	log.Fatal(http.Serve(listener, handler))
 }

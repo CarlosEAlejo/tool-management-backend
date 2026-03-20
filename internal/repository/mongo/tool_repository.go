@@ -72,7 +72,7 @@ func (r *ToolRepository) List(ctx context.Context, filter domain.Filter) ([]doma
 func (r *ToolRepository) GetByID(ctx context.Context, id string) (domain.Tool, error) {
 	objectID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
-		return domain.Tool{}, fmt.Errorf("invalid tool id: %w", err)
+		return domain.Tool{}, repository.ErrInvalidID
 	}
 
 	var document toolDocument
@@ -89,13 +89,29 @@ func (r *ToolRepository) GetByID(ctx context.Context, id string) (domain.Tool, e
 func (r *ToolRepository) Update(ctx context.Context, tool domain.Tool) (domain.Tool, error) {
 	objectID, err := primitive.ObjectIDFromHex(tool.ID)
 	if err != nil {
-		return domain.Tool{}, fmt.Errorf("invalid tool id: %w", err)
+		return domain.Tool{}, repository.ErrInvalidID
 	}
 
 	document := toDocument(tool)
 	document.ID = objectID
 
-	result, err := r.collection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": document})
+	updateFields := bson.M{
+		"code":              document.Code,
+		"name":              document.Name,
+		"type":              document.Type,
+		"status":            document.Status,
+		"responsible":       document.Responsible,
+		"assignmentDate":    document.AssignmentDate,
+		"dateMaintenance":   document.DateMaintenance,
+		"nextMaintenance":   document.NextMaintenance,
+		"location":          document.Location,
+		"notes":             document.Notes,
+		"deterioration":     document.Deterioration,
+		"assignmentHistory": document.AssignmentHistory,
+		"maintenanceRecord": document.MaintenanceRecord,
+	}
+
+	result, err := r.collection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": updateFields})
 	if err != nil {
 		return domain.Tool{}, fmt.Errorf("update tool: %w", err)
 	}
@@ -109,7 +125,7 @@ func (r *ToolRepository) Update(ctx context.Context, tool domain.Tool) (domain.T
 func (r *ToolRepository) Delete(ctx context.Context, id string) error {
 	objectID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
-		return fmt.Errorf("invalid tool id: %w", err)
+		return repository.ErrInvalidID
 	}
 
 	result, err := r.collection.DeleteOne(ctx, bson.M{"_id": objectID})
