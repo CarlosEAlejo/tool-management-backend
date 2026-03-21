@@ -3,6 +3,8 @@ package main
 import (
 	"log"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"tool_management_backend/internal/database"
 	"tool_management_backend/internal/routes"
@@ -10,6 +12,33 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/rs/cors"
 )
+
+func isAllowedOrigin(origin string) bool {
+	if origin == "" {
+		return true
+	}
+
+	parsedOrigin, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+
+	if parsedOrigin.Scheme != "http" {
+		return false
+	}
+
+	hostname := parsedOrigin.Hostname()
+	if hostname != "localhost" && hostname != "127.0.0.1" {
+		return false
+	}
+
+	port := parsedOrigin.Port()
+	if port == "" {
+		return false
+	}
+
+	return strings.TrimSpace(port) != ""
+}
 
 func main() {
 	err := godotenv.Load()
@@ -22,15 +51,13 @@ func main() {
 
 	r := routes.SetupRouter()
 
-	// Configura CORS
 	c := cors.New(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:3000"}, // Cambia esto según sea necesario
+		AllowOriginFunc: isAllowedOrigin,
 		AllowCredentials: true,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Content-Type", "Authorization"},
 	})
 
-	// Envuelve el enrutador con el middleware CORS
 	handler := c.Handler(r)
 
 	log.Println("Servidor iniciado en el puerto 8000")
