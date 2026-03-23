@@ -3,16 +3,15 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
-
 	"net/url"
+
 	"tool_management_backend/internal/database"
 	"tool_management_backend/internal/models"
 
-	"github.com/gorilla/mux"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 func CreateHerramienta(w http.ResponseWriter, r *http.Request) {
@@ -21,7 +20,7 @@ func CreateHerramienta(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	herramienta.ID = primitive.NewObjectID()
+	herramienta.ID = bson.NewObjectID()
 
 	collection := database.GetDatabase().Collection("herramientas")
 	_, err := collection.InsertOne(context.TODO(), herramienta)
@@ -30,40 +29,10 @@ func CreateHerramienta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(herramienta)
+	_ = json.NewEncoder(w).Encode(herramienta)
 }
 
-// func GetHerramientas(w http.ResponseWriter, r *http.Request) {
-// 	query := bson.M{}
-
-// 	// Add filters from query parameters
-// 	if status := r.URL.Query().Get("status"); status != "" {
-// 		query["status"] = status
-// 	}
-
-// 	if responsible := r.URL.Query().Get("responsible"); responsible != "" {
-// 		query["responsible"] = bson.M{"$regex": primitive.Regex{Pattern: responsible, Options: "i"}}
-// 	}
-
-// 	collection := database.GetDatabase().Collection("herramientas")
-// 	cursor, err := collection.Find(context.TODO(), query)
-// 	if err != nil {
-// 		http.Error(w, err.Error(), http.StatusInternalServerError)
-// 		return
-// 	}
-// 	defer cursor.Close(context.TODO()) // Asegúrate de cerrar el cursor
-
-// 	var herramientas []models.Herramienta
-// 	if err = cursor.All(context.TODO(), &herramientas); err != nil {
-// 		http.Error(w, err.Error(), http.StatusInternalServerError)
-// 		return
-// 	}
-
-// 	json.NewEncoder(w).Encode(herramientas)
-// }
-
 func GetHerramientas(w http.ResponseWriter, r *http.Request) {
-	// Construimos el filtro basado en los query params
 	filter := buildHerramientaFilter(r.URL.Query())
 
 	collection := database.GetDatabase().Collection("herramientas")
@@ -80,20 +49,17 @@ func GetHerramientas(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Si no hay resultados, devolver array vacío en lugar de null
 	if herramientas == nil {
 		herramientas = []models.Herramienta{}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(herramientas)
+	_ = json.NewEncoder(w).Encode(herramientas)
 }
 
-// buildHerramientaFilter construye el filtro de MongoDB basado en los parámetros
 func buildHerramientaFilter(queryParams url.Values) bson.M {
 	filter := bson.M{}
 
-	// Filtros exactos
 	exactFilters := []string{"code", "name", "type", "status", "responsible", "location"}
 	for _, field := range exactFilters {
 		if value := queryParams.Get(field); value != "" {
@@ -101,7 +67,6 @@ func buildHerramientaFilter(queryParams url.Values) bson.M {
 		}
 	}
 
-	// Búsqueda por coincidencia parcial en campos de texto
 	if search := queryParams.Get("search"); search != "" {
 		orFilters := []bson.M{
 			{"name": bson.M{"$regex": search, "$options": "i"}},
@@ -109,7 +74,6 @@ func buildHerramientaFilter(queryParams url.Values) bson.M {
 			{"responsible": bson.M{"$regex": search, "$options": "i"}},
 		}
 
-		// Si ya tenemos otros filtros exactos, combinarlos con $and
 		if len(filter) > 0 {
 			filter = bson.M{
 				"$and": []bson.M{
@@ -125,10 +89,8 @@ func buildHerramientaFilter(queryParams url.Values) bson.M {
 	return filter
 }
 
-// UpdateHerramienta maneja la actualización de una herramienta
 func UpdateHerramienta(w http.ResponseWriter, r *http.Request) {
-	params := mux.Vars(r)
-	id, err := primitive.ObjectIDFromHex(params["id"])
+	id, err := bson.ObjectIDFromHex(r.PathValue("id"))
 	if err != nil {
 		sendErrorResponse(w, err.Error(), http.StatusBadRequest)
 		return
@@ -140,52 +102,43 @@ func UpdateHerramienta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Obtener la herramienta actual
 	currentHerramienta, err := getCurrentHerramienta(id)
 	if err != nil {
 		sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Procesar el historial si es necesario
 	if herramienta.Status == "assigned" {
 		herramienta = processAssignmentHistory(currentHerramienta, herramienta)
 	}
 
-	// Procesar historial de mantenimientos si es necesario
 	if herramienta.Status == "maintenance" {
 		herramienta = processMaintenanceHistory(currentHerramienta, herramienta)
 	}
 
-	// Actualizar en la base de datos
 	if err := updateHerramientaInDB(id, herramienta); err != nil {
 		sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	json.NewEncoder(w).Encode(herramienta)
+	_ = json.NewEncoder(w).Encode(herramienta)
 }
 
-// getCurrentHerramienta obtiene la herramienta actual desde la base de datos
-func getCurrentHerramienta(id primitive.ObjectID) (models.Herramienta, error) {
+func getCurrentHerramienta(id bson.ObjectID) (models.Herramienta, error) {
 	collection := database.GetDatabase().Collection("herramientas")
 	var herramienta models.Herramienta
 	err := collection.FindOne(context.TODO(), bson.M{"_id": id}).Decode(&herramienta)
 	return herramienta, err
 }
 
-// processAssignmentHistory procesa el historial de asignaciones
 func processAssignmentHistory(current, newHerramienta models.Herramienta) models.Herramienta {
 	newHistory := models.AssignmentHistory{
 		Responsible:    newHerramienta.Responsible,
 		AssignmentDate: newHerramienta.AssignmentDate,
 	}
 
-	// Verificar si hay que agregar el nuevo historial
 	if shouldAddNewHistory(current.AssignmentHistory, newHistory) {
 		newHerramienta.AssignmentHistory = append(current.AssignmentHistory, newHistory)
-
-		// Limitar el historial a los últimos 10 registros
 		if len(newHerramienta.AssignmentHistory) > 10 {
 			newHerramienta.AssignmentHistory = newHerramienta.AssignmentHistory[len(newHerramienta.AssignmentHistory)-10:]
 		}
@@ -196,20 +149,16 @@ func processAssignmentHistory(current, newHerramienta models.Herramienta) models
 	return newHerramienta
 }
 
-// shouldAddNewHistory determina si se debe agregar un nuevo registro al historial
 func shouldAddNewHistory(history []models.AssignmentHistory, newHistory models.AssignmentHistory) bool {
-	// Si no hay historial, agregar el primer registro
 	if len(history) == 0 {
 		return true
 	}
 
 	lastHistory := history[len(history)-1]
-	// Solo agregar si es diferente al último registro
 	return !(lastHistory.Responsible == newHistory.Responsible &&
 		lastHistory.AssignmentDate == newHistory.AssignmentDate)
 }
 
-// Nuevo método para procesar historial de mantenimientos
 func processMaintenanceHistory(current, newHerramienta models.Herramienta) models.Herramienta {
 	newMaintenanceRecord := models.MaintenanceHistory{
 		DateMaintenance: newHerramienta.DateMaintenance,
@@ -217,8 +166,6 @@ func processMaintenanceHistory(current, newHerramienta models.Herramienta) model
 	}
 	if shouldAddNewMaintenanceRecord(current.MaintenanceRecord, newMaintenanceRecord) {
 		newHerramienta.MaintenanceRecord = append(current.MaintenanceRecord, newMaintenanceRecord)
-
-		// Limitar a los últimos 10 registros
 		if len(newHerramienta.MaintenanceRecord) > 10 {
 			newHerramienta.MaintenanceRecord = newHerramienta.MaintenanceRecord[len(newHerramienta.MaintenanceRecord)-10:]
 		}
@@ -228,7 +175,6 @@ func processMaintenanceHistory(current, newHerramienta models.Herramienta) model
 	return newHerramienta
 }
 
-// Determina si se debe añadir nuevo registro de mantenimiento
 func shouldAddNewMaintenanceRecord(records []models.MaintenanceHistory, newRecord models.MaintenanceHistory) bool {
 	if len(records) == 0 {
 		return true
@@ -238,8 +184,7 @@ func shouldAddNewMaintenanceRecord(records []models.MaintenanceHistory, newRecor
 		lastRecord.NextMaintenance == newRecord.NextMaintenance)
 }
 
-// updateHerramientaInDB actualiza la herramienta en la base de datos
-func updateHerramientaInDB(id primitive.ObjectID, herramienta models.Herramienta) error {
+func updateHerramientaInDB(id bson.ObjectID, herramienta models.Herramienta) error {
 	collection := database.GetDatabase().Collection("herramientas")
 	_, err := collection.UpdateOne(
 		context.TODO(),
@@ -249,14 +194,12 @@ func updateHerramientaInDB(id primitive.ObjectID, herramienta models.Herramienta
 	return err
 }
 
-// sendErrorResponse envía una respuesta de error
 func sendErrorResponse(w http.ResponseWriter, message string, statusCode int) {
 	http.Error(w, message, statusCode)
 }
 
 func DeleteHerramienta(w http.ResponseWriter, r *http.Request) {
-	params := mux.Vars(r)
-	id, err := primitive.ObjectIDFromHex(params["id"])
+	id, err := bson.ObjectIDFromHex(r.PathValue("id"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -278,8 +221,7 @@ func DeleteHerramienta(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetHerramientaByID(w http.ResponseWriter, r *http.Request) {
-	params := mux.Vars(r)
-	id, err := primitive.ObjectIDFromHex(params["id"])
+	id, err := bson.ObjectIDFromHex(r.PathValue("id"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -289,7 +231,7 @@ func GetHerramientaByID(w http.ResponseWriter, r *http.Request) {
 	var herramienta models.Herramienta
 	err = collection.FindOne(context.TODO(), bson.M{"_id": id}).Decode(&herramienta)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			http.Error(w, "Herramienta no encontrada", http.StatusNotFound)
 			return
 		}
@@ -297,5 +239,5 @@ func GetHerramientaByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(herramienta)
+	_ = json.NewEncoder(w).Encode(herramienta)
 }

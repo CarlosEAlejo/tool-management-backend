@@ -12,9 +12,8 @@ import (
 	"tool_management_backend/internal/models"
 	"tool_management_backend/internal/notifications"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -87,7 +86,7 @@ func (s *Service) Register(ctx context.Context, email string, password string, c
 
 	now := time.Now().UTC()
 	user := models.User{
-		ID:            primitive.NewObjectID(),
+		ID:            bson.NewObjectID(),
 		Email:         normalizedEmail,
 		PasswordHash:  string(hash),
 		Roles:         []string{models.RoleAdministrator},
@@ -143,7 +142,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (*AuthResult
 	}
 
 	userIDHex, _ := claims["sub"].(string)
-	userID, err := primitive.ObjectIDFromHex(userIDHex)
+	userID, err := bson.ObjectIDFromHex(userIDHex)
 	if err != nil {
 		return nil, ErrInvalidRefresh
 	}
@@ -191,7 +190,7 @@ func (s *Service) Logout(ctx context.Context, refreshToken string) error {
 	return err
 }
 
-func (s *Service) FindUserByID(ctx context.Context, id primitive.ObjectID) (*models.User, error) {
+func (s *Service) FindUserByID(ctx context.Context, id bson.ObjectID) (*models.User, error) {
 	var user models.User
 	if err := s.usersCollection().FindOne(ctx, bson.M{"_id": id}).Decode(&user); err != nil {
 		return nil, err
@@ -209,7 +208,7 @@ func (s *Service) ParseAccessToken(ctx context.Context, token string) (*models.U
 	}
 
 	userIDHex, _ := claims["sub"].(string)
-	userID, err := primitive.ObjectIDFromHex(userIDHex)
+	userID, err := bson.ObjectIDFromHex(userIDHex)
 	if err != nil {
 		return nil, ErrUnauthorized
 	}
@@ -255,7 +254,7 @@ func (s *Service) issueSession(ctx context.Context, user models.User) (*AuthResu
 	}
 
 	session := models.AuthSession{
-		ID:        primitive.NewObjectID(),
+		ID:        bson.NewObjectID(),
 		UserID:    user.ID,
 		TokenHash: hashToken(refreshToken),
 		JTI:       jti,

@@ -5,23 +5,26 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 var client *mongo.Client
 
 func ConnectDB() {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	var err error
 	clientOptions := options.Client().ApplyURI(os.Getenv("MONGODB_URI"))
-	client, err = mongo.Connect(context.TODO(), clientOptions)
+	client, err = mongo.Connect(clientOptions)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	err = client.Ping(context.TODO(), nil)
-	if err != nil {
+	if err = client.Ping(ctx, nil); err != nil {
 		log.Fatal(err)
 	}
 	log.Println("Conectado a MongoDB!")
@@ -31,7 +34,10 @@ func DisconnectDB() {
 	if client == nil {
 		return
 	}
-	if err := client.Disconnect(context.TODO()); err != nil {
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := client.Disconnect(ctx); err != nil {
 		log.Fatal(err)
 	}
 }
