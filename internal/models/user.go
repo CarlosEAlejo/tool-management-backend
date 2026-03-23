@@ -24,14 +24,15 @@ type User struct {
 }
 
 type AuthSession struct {
-	ID         bson.ObjectID `bson:"_id,omitempty"`
-	UserID     bson.ObjectID `bson:"user_id"`
-	TokenHash  string        `bson:"token_hash"`
-	JTI        string        `bson:"jti"`
-	ExpiresAt  time.Time     `bson:"expires_at"`
-	RevokedAt  *time.Time    `bson:"revoked_at,omitempty"`
-	CreatedAt  time.Time     `bson:"created_at"`
-	LastUsedAt *time.Time    `bson:"last_used_at,omitempty"`
+	ID            bson.ObjectID `bson:"_id,omitempty"`
+	UserID        bson.ObjectID `bson:"user_id"`
+	TokenHash     string        `bson:"token_hash"`
+	CSRFTokenHash string        `bson:"csrf_token_hash"`
+	JTI           string        `bson:"jti"`
+	ExpiresAt     time.Time     `bson:"expires_at"`
+	RevokedAt     *time.Time    `bson:"revoked_at,omitempty"`
+	CreatedAt     time.Time     `bson:"created_at"`
+	LastUsedAt    *time.Time    `bson:"last_used_at,omitempty"`
 }
 
 type PublicUser struct {

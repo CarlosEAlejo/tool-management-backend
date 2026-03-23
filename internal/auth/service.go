@@ -23,6 +23,7 @@ var (
 	ErrEmailAlreadyUsed   = errors.New("email already used")
 	ErrInvalidRefresh     = errors.New("invalid refresh token")
 	ErrUnauthorized       = errors.New("unauthorized")
+	ErrInvalidCSRFToken   = errors.New("invalid csrf token")
 )
 
 type Service struct {
@@ -34,10 +35,15 @@ type Service struct {
 }
 
 type AuthResult struct {
-	User         models.PublicUser `json:"user"`
-	AccessToken  string            `json:"accessToken"`
-	RefreshToken string            `json:"refreshToken"`
-	ExpiresIn    int64             `json:"expiresIn"`
+	User        models.PublicUser `json:"user"`
+	AccessToken string            `json:"accessToken"`
+	ExpiresIn   int64             `json:"expiresIn"`
+}
+
+type IssuedSession struct {
+	AuthResult
+	RefreshToken string
+	CSRFToken    string
 }
 
 func NewService() *Service {
@@ -50,7 +56,7 @@ func NewService() *Service {
 	}
 }
 
-func (s *Service) Register(ctx context.Context, email string, password string, confirmPassword string) (*AuthResult, error) {
+func (s *Service) Register(ctx context.Context, email string, password string, confirmPassword string) (*IssuedSession, error) {
 	normalizedEmail, err := normalizeEmail(email)
 	if err != nil {
 		return nil, err
@@ -103,7 +109,7 @@ func (s *Service) Register(ctx context.Context, email string, password string, c
 	return s.issueSession(ctx, user)
 }
 
-func (s *Service) Login(ctx context.Context, email string, password string) (*AuthResult, error) {
+func (s *Service) Login(ctx context.Context, email string, password string) (*IssuedSession, error) {
 	normalizedEmail, err := normalizeEmail(email)
 	if err != nil {
 		return nil, ErrInvalidCredentials
@@ -132,7 +138,16 @@ func (s *Service) Login(ctx context.Context, email string, password string) (*Au
 	return s.issueSession(ctx, user)
 }
 
-func (s *Service) Refresh(ctx context.Context, refreshToken string) (*AuthResult, error) {
+func (s *Service) Refresh(ctx context.Context, refreshToken string, csrfToken string) (*IssuedSession, error) {
+	refreshToken = strings.TrimSpace(refreshToken)
+	csrfToken = strings.TrimSpace(csrfToken)
+	if refreshToken == "" {
+		return nil, ErrInvalidRefresh
+	}
+	if csrfToken == "" {
+		return nil, ErrInvalidCSRFToken
+	}
+
 	claims, err := parseJWT(refreshToken, s.refreshSecret)
 	if err != nil {
 		return nil, ErrInvalidRefresh
@@ -150,11 +165,12 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (*AuthResult
 
 	var session models.AuthSession
 	if err := s.sessionsCollection().FindOne(ctx, bson.M{
-		"user_id":    userID,
-		"jti":        jti,
-		"token_hash": hashToken(refreshToken),
-		"revoked_at": bson.M{"$exists": false},
-		"expires_at": bson.M{"$gt": time.Now().UTC()},
+		"user_id":         userID,
+		"jti":             jti,
+		"token_hash":      hashToken(refreshToken),
+		"csrf_token_hash": hashToken(csrfToken),
+		"revoked_at":      bson.M{"$exists": false},
+		"expires_at":      bson.M{"$gt": time.Now().UTC()},
 	}).Decode(&session); err != nil {
 		return nil, ErrInvalidRefresh
 	}
@@ -173,21 +189,32 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (*AuthResult
 	return s.issueSession(ctx, *user)
 }
 
-func (s *Service) Logout(ctx context.Context, refreshToken string) error {
+func (s *Service) Logout(ctx context.Context, refreshToken string, csrfToken string) error {
 	refreshToken = strings.TrimSpace(refreshToken)
+	csrfToken = strings.TrimSpace(csrfToken)
 	if refreshToken == "" {
 		return nil
 	}
+	if csrfToken == "" {
+		return ErrInvalidCSRFToken
+	}
 
 	now := time.Now().UTC()
-	_, err := s.sessionsCollection().UpdateOne(ctx, bson.M{
-		"token_hash": hashToken(refreshToken),
-		"revoked_at": bson.M{"$exists": false},
+	result, err := s.sessionsCollection().UpdateOne(ctx, bson.M{
+		"token_hash":      hashToken(refreshToken),
+		"csrf_token_hash": hashToken(csrfToken),
+		"revoked_at":      bson.M{"$exists": false},
 	}, bson.M{"$set": bson.M{
 		"revoked_at":   now,
 		"last_used_at": now,
 	}})
-	return err
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 0 {
+		return ErrInvalidCSRFToken
+	}
+	return nil
 }
 
 func (s *Service) FindUserByID(ctx context.Context, id bson.ObjectID) (*models.User, error) {
@@ -220,9 +247,17 @@ func (s *Service) ParseAccessToken(ctx context.Context, token string) (*models.U
 	return user, nil
 }
 
-func (s *Service) issueSession(ctx context.Context, user models.User) (*AuthResult, error) {
+func (s *Service) RefreshCookieTTL() time.Duration {
+	return s.refreshTTL
+}
+
+func (s *Service) issueSession(ctx context.Context, user models.User) (*IssuedSession, error) {
 	now := time.Now().UTC()
 	jti, err := generateRandomHex(32)
+	if err != nil {
+		return nil, err
+	}
+	csrfToken, err := generateRandomHex(32)
 	if err != nil {
 		return nil, err
 	}
@@ -254,22 +289,26 @@ func (s *Service) issueSession(ctx context.Context, user models.User) (*AuthResu
 	}
 
 	session := models.AuthSession{
-		ID:        bson.NewObjectID(),
-		UserID:    user.ID,
-		TokenHash: hashToken(refreshToken),
-		JTI:       jti,
-		ExpiresAt: refreshExpiresAt,
-		CreatedAt: now,
+		ID:            bson.NewObjectID(),
+		UserID:        user.ID,
+		TokenHash:     hashToken(refreshToken),
+		CSRFTokenHash: hashToken(csrfToken),
+		JTI:           jti,
+		ExpiresAt:     refreshExpiresAt,
+		CreatedAt:     now,
 	}
 	if _, err := s.sessionsCollection().InsertOne(ctx, session); err != nil {
 		return nil, err
 	}
 
-	return &AuthResult{
-		User:         user.Public(),
-		AccessToken:  accessToken,
+	return &IssuedSession{
+		AuthResult: AuthResult{
+			User:        user.Public(),
+			AccessToken: accessToken,
+			ExpiresIn:   int64(s.accessTTL.Seconds()),
+		},
 		RefreshToken: refreshToken,
-		ExpiresIn:    int64(s.accessTTL.Seconds()),
+		CSRFToken:    csrfToken,
 	}, nil
 }
 

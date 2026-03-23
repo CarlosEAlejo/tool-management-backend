@@ -68,7 +68,7 @@ func main() {
 		AllowOriginFunc:  isAllowedOrigin,
 		AllowCredentials: true,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Content-Type", "Authorization"},
+		AllowedHeaders:   []string{"Content-Type", "Authorization", "X-CSRF-Token"},
 	})
 
 	addr := serverAddress()
