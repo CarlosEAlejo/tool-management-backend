@@ -13,6 +13,8 @@ import (
 
 	"tool_management_backend/internal/database"
 	"tool_management_backend/internal/routes"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 const testDatabaseName = "herramientas_auth_integration_test"
@@ -30,6 +32,15 @@ func TestMain(m *testing.M) {
 	_ = database.GetDatabase().Drop(context.Background())
 	database.DisconnectDB()
 	os.Exit(code)
+}
+
+func TestMongoConnectionSmoke(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := database.GetClient().Ping(ctx, nil); err != nil {
+		t.Fatalf("expected mongo ping to succeed, got %v", err)
+	}
 }
 
 func TestAuthBootstrapAndProtectedRoutes(t *testing.T) {
@@ -80,6 +91,9 @@ func TestAuthBootstrapAndProtectedRoutes(t *testing.T) {
 		t.Fatalf("expected administrator role, got %#v", roles)
 	}
 
+	meMethodNotAllowed := apiRequest(t, server, "POST", "/auth/me", nil, accessToken)
+	assertStatus(t, meMethodNotAllowed, http.StatusMethodNotAllowed)
+
 	createTool := apiRequest(t, server, "POST", "/herramientas", map[string]any{
 		"code":            "AUTH-001",
 		"name":            "Taladro Test",
@@ -94,6 +108,7 @@ func TestAuthBootstrapAndProtectedRoutes(t *testing.T) {
 		"deterioration":   false,
 	}, accessToken)
 	assertStatus(t, createTool, http.StatusCreated)
+	toolID := createTool.mustString(t, "id")
 
 	listTools := apiRequest(t, server, "GET", "/herramientas", nil, accessToken)
 	assertStatus(t, listTools, http.StatusOK)
@@ -101,6 +116,52 @@ func TestAuthBootstrapAndProtectedRoutes(t *testing.T) {
 	if len(tools) != 1 {
 		t.Fatalf("expected 1 tool, got %d", len(tools))
 	}
+
+	getTool := apiRequest(t, server, "GET", "/herramientas/"+toolID, nil, accessToken)
+	assertStatus(t, getTool, http.StatusOK)
+	assertString(t, getTool.Body["id"], toolID)
+	assertString(t, getTool.Body["name"], "Taladro Test")
+
+	missingToolID := bson.NewObjectID().Hex()
+	missingTool := apiRequest(t, server, "GET", "/herramientas/"+missingToolID, nil, accessToken)
+	assertStatus(t, missingTool, http.StatusNotFound)
+
+	updatedTool := apiRequest(t, server, "PUT", "/herramientas/"+toolID, map[string]any{
+		"id":              toolID,
+		"code":            "AUTH-001",
+		"name":            "Taladro Test Actualizado",
+		"type":            "electric",
+		"status":          "assigned",
+		"responsible":     "Carlos",
+		"assignmentDate":  "2026-03-21",
+		"dateMaintenance": "",
+		"nextMaintenance": "",
+		"location":        "Almacen QA",
+		"notes":           "Prueba automatizada",
+		"deterioration":   false,
+	}, accessToken)
+	assertStatus(t, updatedTool, http.StatusOK)
+	assertString(t, updatedTool.Body["name"], "Taladro Test Actualizado")
+
+	getUpdatedTool := apiRequest(t, server, "GET", "/herramientas/"+toolID, nil, accessToken)
+	assertStatus(t, getUpdatedTool, http.StatusOK)
+	assertString(t, getUpdatedTool.Body["responsible"], "Carlos")
+	assignmentHistory := getUpdatedTool.Body["assignmentHistory"].([]any)
+	if len(assignmentHistory) != 1 {
+		t.Fatalf("expected assignment history to contain 1 record, got %d", len(assignmentHistory))
+	}
+
+	toolMethodNotAllowed := apiRequest(t, server, "PATCH", "/herramientas/"+toolID, nil, accessToken)
+	assertStatus(t, toolMethodNotAllowed, http.StatusMethodNotAllowed)
+
+	deletedTool := apiRequest(t, server, "DELETE", "/herramientas/"+toolID, nil, accessToken)
+	assertStatus(t, deletedTool, http.StatusNoContent)
+
+	getDeletedTool := apiRequest(t, server, "GET", "/herramientas/"+toolID, nil, accessToken)
+	assertStatus(t, getDeletedTool, http.StatusNotFound)
+
+	missingRoute := apiRequest(t, server, "GET", "/ruta-inexistente", nil, accessToken)
+	assertStatus(t, missingRoute, http.StatusNotFound)
 
 	refresh := apiRequest(t, server, "POST", "/auth/refresh", map[string]any{
 		"refreshToken": refreshToken,
