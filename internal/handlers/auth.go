@@ -15,10 +15,6 @@ type authRequest struct {
 	ConfirmPassword string `json:"confirmPassword"`
 }
 
-type refreshRequest struct {
-	RefreshToken string `json:"refreshToken"`
-}
-
 func Register(w http.ResponseWriter, r *http.Request) {
 	var payload authRequest
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -26,7 +22,8 @@ func Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := auth.NewService().Register(r.Context(), payload.Email, payload.Password, payload.ConfirmPassword)
+	service := auth.NewService()
+	result, err := service.Register(r.Context(), payload.Email, payload.Password, payload.ConfirmPassword)
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrRegistrationClosed):
@@ -39,7 +36,9 @@ func Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	WriteJSON(w, http.StatusCreated, result)
+	setRefreshTokenCookie(w, r, result.RefreshToken, service.RefreshCookieTTL())
+	setCSRFCookie(w, r, result.CSRFToken, service.RefreshCookieTTL())
+	WriteJSON(w, http.StatusCreated, result.AuthResult)
 }
 
 func Login(w http.ResponseWriter, r *http.Request) {
@@ -49,40 +48,66 @@ func Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := auth.NewService().Login(r.Context(), payload.Email, payload.Password)
+	service := auth.NewService()
+	result, err := service.Login(r.Context(), payload.Email, payload.Password)
 	if err != nil {
 		WriteJSONError(w, "invalid_credentials", "Correo o contrasena incorrectos.", http.StatusUnauthorized)
 		return
 	}
 
-	WriteJSON(w, http.StatusOK, result)
+	setRefreshTokenCookie(w, r, result.RefreshToken, service.RefreshCookieTTL())
+	setCSRFCookie(w, r, result.CSRFToken, service.RefreshCookieTTL())
+	WriteJSON(w, http.StatusOK, result.AuthResult)
 }
 
 func Refresh(w http.ResponseWriter, r *http.Request) {
-	var payload refreshRequest
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		WriteJSONError(w, "invalid_json", "Los datos enviados no tienen un formato valido.", http.StatusBadRequest)
+	refreshToken := getRefreshTokenFromCookie(r)
+	csrfCookieToken := getCSRFTokenFromCookie(r)
+	csrfHeaderToken := getCSRFTokenFromHeader(r)
+	if refreshToken == "" || csrfCookieToken == "" || csrfHeaderToken == "" || csrfCookieToken != csrfHeaderToken {
+		clearAuthCookies(w, r)
+		WriteJSONError(w, "invalid_csrf_token", "La solicitud de sesion no es valida.", http.StatusUnauthorized)
 		return
 	}
 
-	result, err := auth.NewService().Refresh(r.Context(), payload.RefreshToken)
+	service := auth.NewService()
+	result, err := service.Refresh(r.Context(), refreshToken, csrfHeaderToken)
 	if err != nil {
+		clearAuthCookies(w, r)
+		if errors.Is(err, auth.ErrInvalidCSRFToken) {
+			WriteJSONError(w, "invalid_csrf_token", "La solicitud de sesion no es valida.", http.StatusUnauthorized)
+			return
+		}
 		WriteJSONError(w, "invalid_refresh_token", "La sesion ya no es valida.", http.StatusUnauthorized)
 		return
 	}
 
-	WriteJSON(w, http.StatusOK, result)
+	setRefreshTokenCookie(w, r, result.RefreshToken, service.RefreshCookieTTL())
+	setCSRFCookie(w, r, result.CSRFToken, service.RefreshCookieTTL())
+	WriteJSON(w, http.StatusOK, result.AuthResult)
 }
 
 func Logout(w http.ResponseWriter, r *http.Request) {
-	var payload refreshRequest
-	_ = json.NewDecoder(r.Body).Decode(&payload)
+	refreshToken := getRefreshTokenFromCookie(r)
+	csrfCookieToken := getCSRFTokenFromCookie(r)
+	csrfHeaderToken := getCSRFTokenFromHeader(r)
+	if csrfCookieToken == "" || csrfHeaderToken == "" || csrfCookieToken != csrfHeaderToken {
+		clearAuthCookies(w, r)
+		WriteJSONError(w, "invalid_csrf_token", "La solicitud de sesion no es valida.", http.StatusUnauthorized)
+		return
+	}
 
-	if err := auth.NewService().Logout(r.Context(), payload.RefreshToken); err != nil {
+	if err := auth.NewService().Logout(r.Context(), refreshToken, csrfHeaderToken); err != nil {
+		clearAuthCookies(w, r)
+		if errors.Is(err, auth.ErrInvalidCSRFToken) {
+			WriteJSONError(w, "invalid_csrf_token", "La solicitud de sesion no es valida.", http.StatusUnauthorized)
+			return
+		}
 		WriteJSONError(w, "logout_failed", "No se pudo cerrar la sesion.", http.StatusInternalServerError)
 		return
 	}
 
+	clearAuthCookies(w, r)
 	WriteJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
