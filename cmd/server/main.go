@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 
 	"tool_management_backend/internal/database"
@@ -40,10 +41,22 @@ func isAllowedOrigin(origin string) bool {
 	return strings.TrimSpace(port) != ""
 }
 
+func serverAddress() string {
+	port := strings.TrimSpace(os.Getenv("PORT"))
+	if port == "" {
+		port = "8000"
+	}
+
+	if strings.HasPrefix(port, ":") {
+		return port
+	}
+
+	return ":" + port
+}
+
 func main() {
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatal("Error loading .env file")
+	if err := godotenv.Load(); err != nil {
+		log.Println(".env file not loaded; using system environment")
 	}
 
 	database.ConnectDB()
@@ -52,14 +65,15 @@ func main() {
 	r := routes.SetupRouter()
 
 	c := cors.New(cors.Options{
-		AllowOriginFunc: isAllowedOrigin,
+		AllowOriginFunc:  isAllowedOrigin,
 		AllowCredentials: true,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Content-Type", "Authorization"},
 	})
 
+	addr := serverAddress()
 	handler := c.Handler(r)
 
-	log.Println("Servidor iniciado en el puerto 8000")
-	log.Fatal(http.ListenAndServe(":8000", handler))
+	log.Printf("Servidor iniciado en %s", addr)
+	log.Fatal(http.ListenAndServe(addr, handler))
 }

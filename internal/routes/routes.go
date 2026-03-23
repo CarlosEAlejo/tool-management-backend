@@ -6,27 +6,39 @@ import (
 	"tool_management_backend/internal/handlers"
 	"tool_management_backend/internal/middleware"
 	"tool_management_backend/internal/models"
-
-	"github.com/gorilla/mux"
 )
 
-func SetupRouter() *mux.Router {
-	r := mux.NewRouter()
+func SetupRouter() http.Handler {
+	mux := http.NewServeMux()
 
-	r.HandleFunc("/auth/register", handlers.Register).Methods("POST")
-	r.HandleFunc("/auth/login", handlers.Login).Methods("POST")
-	r.Handle("/auth/me", middleware.RequireAuth(http.HandlerFunc(handlers.Me))).Methods("GET")
-	r.HandleFunc("/auth/refresh", handlers.Refresh).Methods("POST")
-	r.HandleFunc("/auth/logout", handlers.Logout).Methods("POST")
+	mux.HandleFunc("POST /auth/register", handlers.Register)
+	mux.HandleFunc("POST /auth/login", handlers.Login)
+	mux.Handle("GET /auth/me", middleware.RequireAuth(http.HandlerFunc(handlers.Me)))
+	mux.HandleFunc("POST /auth/refresh", handlers.Refresh)
+	mux.HandleFunc("POST /auth/logout", handlers.Logout)
 
-	tools := r.PathPrefix("/herramientas").Subrouter()
-	tools.Use(middleware.RequireAuth)
-	tools.Use(middleware.RequireRoles(models.RoleAdministrator))
-	tools.HandleFunc("", handlers.CreateHerramienta).Methods("POST")
-	tools.HandleFunc("", handlers.GetHerramientas).Methods("GET")
-	tools.HandleFunc("/{id}", handlers.GetHerramientaByID).Methods("GET")
-	tools.HandleFunc("/{id}", handlers.UpdateHerramienta).Methods("PUT")
-	tools.HandleFunc("/{id}", handlers.DeleteHerramienta).Methods("DELETE")
+	toolMiddlewares := []func(http.Handler) http.Handler{
+		middleware.RequireAuth,
+		middleware.RequireRoles(models.RoleAdministrator),
+	}
 
-	return r
+	handleWithMiddleware(mux, "POST /herramientas", http.HandlerFunc(handlers.CreateHerramienta), toolMiddlewares...)
+	handleWithMiddleware(mux, "GET /herramientas", http.HandlerFunc(handlers.GetHerramientas), toolMiddlewares...)
+	handleWithMiddleware(mux, "GET /herramientas/{id}", http.HandlerFunc(handlers.GetHerramientaByID), toolMiddlewares...)
+	handleWithMiddleware(mux, "PUT /herramientas/{id}", http.HandlerFunc(handlers.UpdateHerramienta), toolMiddlewares...)
+	handleWithMiddleware(mux, "DELETE /herramientas/{id}", http.HandlerFunc(handlers.DeleteHerramienta), toolMiddlewares...)
+
+	return mux
+}
+
+func handleWithMiddleware(mux *http.ServeMux, pattern string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) {
+	mux.Handle(pattern, applyMiddlewares(handler, middlewares...))
+}
+
+func applyMiddlewares(handler http.Handler, middlewares ...func(http.Handler) http.Handler) http.Handler {
+	wrapped := handler
+	for i := len(middlewares) - 1; i >= 0; i-- {
+		wrapped = middlewares[i](wrapped)
+	}
+	return wrapped
 }

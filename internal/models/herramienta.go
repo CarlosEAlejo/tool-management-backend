@@ -1,9 +1,9 @@
 package models
 
-import "go.mongodb.org/mongo-driver/bson/primitive"
+import "go.mongodb.org/mongo-driver/v2/bson"
 
 type Herramienta struct {
-	ID                primitive.ObjectID   `bson:"_id,omitempty" json:"id"`
+	ID                bson.ObjectID        `bson:"_id,omitempty" json:"id"`
 	Code              string               `bson:"code" json:"code"`
 	Name              string               `bson:"name" json:"name"`
 	Type              string               `bson:"type" json:"type"`
