@@ -76,8 +76,12 @@ func TestAuthBootstrapAndProtectedRoutes(t *testing.T) {
 		"password":        "admin12345",
 		"confirmPassword": "admin12345",
 	}, "", true)
-	assertStatus(t, secondRegister, http.StatusForbidden)
-	assertCode(t, secondRegister, "registration_closed")
+	assertStatus(t, secondRegister, http.StatusCreated)
+	assertString(t, secondRegister.Body["user"].(map[string]any)["email"], "second@example.com")
+	secondRoles := secondRegister.Body["user"].(map[string]any)["roles"].([]any)
+	if len(secondRoles) != 1 || secondRoles[0] != "administrator" {
+		t.Fatalf("expected second registered user to be administrator, got %#v", secondRoles)
+	}
 
 	invalidLogin := api.request(t, server, "POST", "/auth/login", map[string]any{
 		"email":    "admin@example.com",
@@ -412,3 +416,9 @@ func assertCookieCleared(t *testing.T, response apiResponse, name string) {
 
 	t.Fatalf("expected cookie %s clearing instruction", name)
 }
+
+
+
+
+
+

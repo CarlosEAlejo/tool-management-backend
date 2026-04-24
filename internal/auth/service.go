@@ -19,7 +19,6 @@ import (
 
 var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
-	ErrRegistrationClosed = errors.New("registration closed")
 	ErrEmailAlreadyUsed   = errors.New("email already used")
 	ErrInvalidRefresh     = errors.New("invalid refresh token")
 	ErrUnauthorized       = errors.New("unauthorized")
@@ -69,14 +68,6 @@ func (s *Service) Register(ctx context.Context, email string, password string, c
 	}
 
 	users := s.usersCollection()
-	adminCount, err := users.CountDocuments(ctx, bson.M{"roles": models.RoleAdministrator})
-	if err != nil {
-		return nil, err
-	}
-	if adminCount > 0 {
-		return nil, ErrRegistrationClosed
-	}
-
 	existingCount, err := users.CountDocuments(ctx, bson.M{"email": normalizedEmail})
 	if err != nil {
 		return nil, err
@@ -355,3 +346,6 @@ func parseDurationEnv(key string, fallback time.Duration) time.Duration {
 	}
 	return duration
 }
+
+
+
