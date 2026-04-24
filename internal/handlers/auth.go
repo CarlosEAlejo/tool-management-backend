@@ -26,8 +26,6 @@ func Register(w http.ResponseWriter, r *http.Request) {
 	result, err := service.Register(r.Context(), payload.Email, payload.Password, payload.ConfirmPassword)
 	if err != nil {
 		switch {
-		case errors.Is(err, auth.ErrRegistrationClosed):
-			WriteJSONError(w, "registration_closed", "El registro ya no esta disponible.", http.StatusForbidden)
 		case errors.Is(err, auth.ErrEmailAlreadyUsed):
 			WriteJSONError(w, "email_already_used", "Ese correo ya esta registrado.", http.StatusConflict)
 		default:
@@ -134,3 +132,5 @@ func normalizeAuthError(err error) string {
 		return "No se pudo procesar la solicitud."
 	}
 }
+
+
