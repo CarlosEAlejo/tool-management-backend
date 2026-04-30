@@ -35,6 +35,14 @@ func SetupRouter() http.Handler {
 	handleWithMiddlewareAndAPIPrefix(mux, "PUT /trabajadores/{id}", http.HandlerFunc(handlers.UpdateTrabajador), adminMiddlewares...)
 	handleWithMiddlewareAndAPIPrefix(mux, "DELETE /trabajadores/{id}", http.HandlerFunc(handlers.DeleteTrabajador), adminMiddlewares...)
 
+	handleWithMiddlewareAndAPIPrefix(mux, "GET /asignaciones", http.HandlerFunc(handlers.ListAssignmentEvents), adminMiddlewares...)
+	handleWithMiddlewareAndAPIPrefix(mux, "POST /asignaciones", http.HandlerFunc(handlers.CreateAssignment), adminMiddlewares...)
+	handleWithMiddlewareAndAPIPrefix(mux, "POST /asignaciones/{toolId}/devolver", http.HandlerFunc(handlers.ReturnAssignment), adminMiddlewares...)
+
+	handleWithMiddlewareAndAPIPrefix(mux, "GET /mantenimientos", http.HandlerFunc(handlers.ListMaintenanceEvents), adminMiddlewares...)
+	handleWithMiddlewareAndAPIPrefix(mux, "POST /mantenimientos", http.HandlerFunc(handlers.CreateMaintenance), adminMiddlewares...)
+	handleWithMiddlewareAndAPIPrefix(mux, "POST /mantenimientos/{toolId}/finalizar", http.HandlerFunc(handlers.CompleteMaintenance), adminMiddlewares...)
+
 	return mux
 }
 

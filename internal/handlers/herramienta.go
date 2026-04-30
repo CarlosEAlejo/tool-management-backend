@@ -108,20 +108,40 @@ func UpdateHerramienta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if herramienta.Status == "assigned" {
-		herramienta = processAssignmentHistory(currentHerramienta, herramienta)
+	if err := validateRestrictedFieldsForToolUpdate(currentHerramienta, herramienta); err != nil {
+		sendErrorResponse(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 
-	if herramienta.Status == "maintenance" {
-		herramienta = processMaintenanceHistory(currentHerramienta, herramienta)
-	}
-
+	herramienta.AssignmentHistory = currentHerramienta.AssignmentHistory
+	herramienta.MaintenanceRecord = currentHerramienta.MaintenanceRecord
 	if err := updateHerramientaInDB(id, herramienta); err != nil {
 		sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	_ = json.NewEncoder(w).Encode(herramienta)
+}
+
+func validateRestrictedFieldsForToolUpdate(current, incoming models.Herramienta) error {
+	if current.Status != incoming.Status {
+		if current.Status == "assigned" || incoming.Status == "assigned" {
+			return errors.New("La asignacion o devolucion de herramientas debe hacerse desde la seccion Asignaciones")
+		}
+		if current.Status == "maintenance" || incoming.Status == "maintenance" {
+			return errors.New("La programacion o cierre de mantenimiento debe hacerse desde la seccion Mantenimiento")
+		}
+	}
+
+	if current.ResponsibleID != incoming.ResponsibleID || current.Responsible != incoming.Responsible || current.AssignmentDate != incoming.AssignmentDate {
+		return errors.New("No puedes modificar responsable o fecha de asignacion desde Herramientas")
+	}
+
+	if current.DateMaintenance != incoming.DateMaintenance || current.NextMaintenance != incoming.NextMaintenance {
+		return errors.New("No puedes modificar fechas de mantenimiento desde Herramientas")
+	}
+
+	return nil
 }
 
 func getCurrentHerramienta(id bson.ObjectID) (models.Herramienta, error) {

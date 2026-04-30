@@ -141,31 +141,34 @@ func TestAuthBootstrapAndProtectedRoutes(t *testing.T) {
 	missingTool := api.request(t, server, "GET", "/herramientas/"+missingToolID, nil, accessToken, true)
 	assertStatus(t, missingTool, http.StatusNotFound)
 
-	updatedTool := api.request(t, server, "PUT", "/herramientas/"+toolID, map[string]any{
-		"id":              toolID,
-		"code":            "AUTH-001",
-		"name":            "Taladro Test Actualizado",
-		"type":            "electric",
-		"status":          "assigned",
-		"responsible":     "Carlos",
-		"assignmentDate":  "2026-03-21",
-		"dateMaintenance": "",
-		"nextMaintenance": "",
-		"location":        "Almacen QA",
-		"notes":           "Prueba automatizada",
-		"deterioration":   false,
+	createWorker := api.request(t, server, "POST", "/trabajadores", map[string]any{
+		"firstName": "Carlos",
+		"lastName":  "Operador",
+		"position":  "Tecnico",
+		"email":     "carlos.operador@example.com",
+		"phone":     "5551234",
+		"notes":     "",
 	}, accessToken, true)
-	assertStatus(t, updatedTool, http.StatusOK)
-	assertString(t, updatedTool.Body["name"], "Taladro Test Actualizado")
+	assertStatus(t, createWorker, http.StatusCreated)
+	workerID := createWorker.mustString(t, "id")
+
+	assignedTool := api.request(t, server, "POST", "/asignaciones", map[string]any{
+		"toolId":         toolID,
+		"workerId":       workerID,
+		"assignmentDate": "2026-03-21",
+	}, accessToken, true)
+	assertStatus(t, assignedTool, http.StatusCreated)
 
 	getUpdatedTool := api.request(t, server, "GET", "/herramientas/"+toolID, nil, accessToken, true)
 	assertStatus(t, getUpdatedTool, http.StatusOK)
-	assertString(t, getUpdatedTool.Body["responsible"], "Carlos")
+	assertString(t, getUpdatedTool.Body["responsible"], "Carlos Operador")
 	assignmentHistory := getUpdatedTool.Body["assignmentHistory"].([]any)
 	if len(assignmentHistory) != 1 {
 		t.Fatalf("expected assignment history to contain 1 record, got %d", len(assignmentHistory))
 	}
 
+	returnAssignedTool := api.request(t, server, "POST", "/asignaciones/"+toolID+"/devolver", map[string]any{}, accessToken, true)
+	assertStatus(t, returnAssignedTool, http.StatusOK)
 	toolMethodNotAllowed := api.request(t, server, "PATCH", "/herramientas/"+toolID, nil, accessToken, true)
 	assertStatus(t, toolMethodNotAllowed, http.StatusMethodNotAllowed)
 
@@ -416,9 +419,3 @@ func assertCookieCleared(t *testing.T, response apiResponse, name string) {
 
 	t.Fatalf("expected cookie %s clearing instruction", name)
 }
-
-
-
-
-
-
